@@ -1,0 +1,18 @@
+# Build
+build/
+cmake-cache/
+cmake_install.cmake
+CMakeFiles/
+
+# Saídas da simulação
+estadio-*.csv
+estadio-*.xml
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor
+.vscode/
+*.swp
+*~
