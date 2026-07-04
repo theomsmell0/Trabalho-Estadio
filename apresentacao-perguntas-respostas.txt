@@ -1,0 +1,142 @@
+APRESENTAÇÃO DO PROJETO — ESTADIO-STRESS.CC
+Perguntas do professor e respostas preparadas
+================================================
+
+1) "Cada torre chama YansWifiChannelHelper::Default() separadamente. Isso
+significa zero interferência co-canal entre torres vizinhas. Por que o
+modelo finge que sim?"
+
+Resposta: É verdade, e é uma simplificação deliberada, não um erro passado
+despercebido. Cada InstalarAP() cria seu próprio objeto de canal, então as
+12 torres não competem por espectro entre si no modelo atual. O foco desta
+etapa do trabalho é a distribuição de carga no backbone e a associação de
+torcedores às torres, não a modelagem física de RF em nível de interferência.
+Para representar reuso de canal e interferência co-canal de forma realista,
+o próximo passo seria compartilhar um único YansWifiChannel entre grupos de
+torres no mesmo canal (ex.: padrão de reuso 1-2-3 dos canais 2.4/5GHz) e
+medir a degradação de throughput causada por isso.
+
+
+2) "MinstrelHtWifiManager foi desenhado para taxas HT (802.11n). Onde está
+a justificativa de que ele adapta corretamente as taxas VHT do ac?"
+
+Resposta: O MinstrelHtWifiManager no ns-3 não é exclusivo de HT — ele é o
+gerenciador de adaptação de taxa recomendado pela documentação do módulo
+wifi para HT, VHT e HE quando não se usa um gerenciador ideal (que exige
+conhecimento perfeito do canal, irrealista). Não fiz comparação direta
+contra IdealWifiManager ou outro VHT-specific manager neste trabalho; é uma
+lacuna de validação que decidimos não fechar por não impactar o objetivo
+principal (capacidade agregada do backbone), mas é um ponto justo para uma
+próxima rodada de testes.
+
+
+3) "RandomDiscPositionAllocator com raio 45 gera sobreposição entre células
+vizinhas, mas a associação do torcedor à torre é sorteada ANTES da posição
+existir. Cadê a coerência entre 'onde o cara está' e 'a qual AP ele
+conecta'?"
+
+Resposta: Correto, a ordem lógica no código é: primeiro sorteia-se a torre,
+depois gera-se a posição do torcedor dentro do disco daquela torre. Isso
+significa que a posição é consequência da associação, não o contrário —
+não há lógica de "conecta ao AP mais próximo". É uma simplificação para
+controlar exatamente quantos torcedores cada torre atende (útil para testar
+saturação de uma torre específica), ao custo de não simular decisão de
+associação realista. Um refinamento natural seria gerar a posição primeiro
+(livre no perímetro do oval) e só então associar à torre geometricamente
+mais próxima.
+
+
+4) "Os torcedores têm ConstantPositionMobilityModel. Isso não é um
+estádio, é uma fotografia. Cadê o handoff?"
+
+Resposta: Sim, o cenário é estático por escolha de escopo: o objetivo é
+medir a capacidade da rede Wi-Fi/backbone sob uma carga de usuários fixa e
+densa (o "momento do jogo", torcedor sentado/em pé no mesmo lugar), não o
+comportamento de mobilidade e roaming. Handoff entre torres, RandomWalk
+dentro dos setores ou movimento de entrada/saída do estádio ficam como
+extensão futura do trabalho.
+
+
+5) "Todo o tráfego é downlink. Cadê o uplink de quem sobe vídeo no gol?"
+
+Resposta: Verdade, o tráfego modelado é servidor → torcedor via
+OnOff/PacketSink, representando o cenário de pior caso de consumo
+(streaming simultâneo de muita gente). Não modelamos uplink de rede social,
+que é uma parcela real e relevante do tráfego em estádios. Adicionar um
+segundo par OnOff/Sink no sentido inverso, com um perfil de tráfego menor
+(fotos/posts esporádicos), é uma extensão natural.
+
+
+6) "Todos os torcedores usam a mesma taxa constante de 500Kbps. Cadê a
+heterogeneidade de tráfego?"
+
+Resposta: Optamos por um perfil único de tráfego para manter a comparação
+controlada entre diferentes quantidades de usuários (nUsers) — assim a
+variável isolada é a quantidade de gente, não o mix de aplicações. Isso
+simplifica a análise mas não reflete o tráfego misto real (texto, vídeo,
+usuário ocioso). Para um modelo mais realista, seria necessário sortear o
+perfil de cada torcedor entre algumas classes de tráfego com taxas e
+padrões on/off diferentes.
+
+
+7) "Não há RngSeedManager::SetSeed/SetRun. Como reproduzir o resultado?"
+
+Resposta: Aqui a preocupação é válida, mas o pressuposto está invertido: o
+ns-3 usa por padrão seed=1 e run=1 quando SetSeed/SetRun não são chamados
+explicitamente, ou seja, a simulação JÁ é determinística e reprodutível do
+jeito que está — rodar duas vezes com os mesmos parâmetros dá o mesmo
+resultado. O que falta não é reprodutibilidade, e sim variabilidade
+estatística controlada: para gerar múltiplas réplicas independentes (e
+calcular intervalo de confiança, ponto 8) seria preciso variar
+explicitamente o RngRun a cada execução, mantendo a seed fixa.
+
+
+8) "Uma única rodada e você me traz throughput médio como se fosse verdade
+absoluta. Cadê o intervalo de confiança?"
+
+Resposta: Esse é um limite real do trabalho atual — os números apresentados
+vêm de uma única execução por configuração de nUsers. Não há repetição com
+RngRun distintos nem cálculo de média/desvio padrão/intervalo de confiança
+entre réplicas. Para tornar os resultados estatisticamente defensáveis, o
+próximo passo seria rodar, por exemplo, 10 réplicas por configuração
+variando SetRun, e reportar média ± IC 95% em vez de um valor pontual.
+
+
+9) "nSetores é fixo em 4 e a divisão setorDaTorre[i] = (i*nSetores)/nTorres
+fica desigual quando nTorres não é múltiplo de 4. Testou isso?"
+
+Resposta: É esperado e não quebra a simulação — testamos com nTorres não
+múltiplo de 4 (ex. 13) e o programa roda normalmente, só que os setores
+ficam com números desiguais de torres (ex. 4/3/3/3), o que desbalanceia a
+carga nos links do backbone entre setores. Não é um bug de execução, é uma
+limitação de balanceamento: o critério de divisão é puramente por índice
+(distribuição igual de "fatias" do oval), não por número de torcedores
+atendidos em cada setor.
+
+
+10) "Com --tempo pequeno o programa quebra com overflow no fmod. Que
+outros edge cases não foram testados?"
+
+Resposta: Esse bug é real e foi encontrado durante os próprios testes deste
+trabalho: com --tempo=3 o cálculo "t = 1.0 + fmod((portBase-9000)*0.01,
+simTime-3.0)" faz simTime-3.0 chegar perto de zero (ou negativo), e o
+fmod por um divisor inválido gera overflow que derruba a simulação. Com o
+valor padrão (--tempo=30) e outros valores testados manualmente (60, 3
+usuários vs 60 usuários) o programa roda sem problemas. Os edge cases que
+ainda não foram cobertos sistematicamente: tempos de simulação muito curtos
+(<10s), número de torcedores = 0, e número de torres muito grande (que pode
+gerar sobreposição extrema de discos ou esgotar o /24 usado por torre). O
+tratamento correto seria adicionar uma guarda explícita (ex.: exigir
+--tempo mínimo de 10s, ou reescrever a lógica de agendamento de início dos
+fluxos para não depender de fmod com divisor variável).
+
+
+EXTRA — atenuação por corpo humano / multidão
+
+Resposta: Assumido como limitação conhecida. O YansWifiChannelHelper::Default()
+usa um modelo de perda por log-distância padrão, que não modela a
+atenuação adicional causada por dezenas de milhares de corpos humanos entre
+torre e torcedor — efeito real e significativo em estádios lotados. Um
+refinamento futuro seria aplicar um modelo de perda adicional (ex. um fator
+de atenuação fixo por "camada de gente" ou um modelo ITU-R para ambientes
+densos) em vez do log-distância "espaço livre".

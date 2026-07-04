@@ -83,6 +83,8 @@ InstalarAP(Ptr<Node> apNode,
            double apX,
            double apY,
            double raio,
+           double campoX,
+           double campoY,
            Ipv4AddressHelper& ipHelper)
 {
     YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
@@ -112,12 +114,31 @@ InstalarAP(Ptr<Node> apNode,
     mob.SetMobilityModel("ns3::ConstantPositionMobilityModel");
     mob.Install(apNode);
 
-    std::ostringstream rhoStr;
-    rhoStr << "ns3::UniformRandomVariable[Min=1.0|Max=" << raio << "]";
-    mob.SetPositionAllocator("ns3::RandomDiscPositionAllocator",
-                             "X",   DoubleValue(apX),
-                             "Y",   DoubleValue(apY),
-                             "Rho", StringValue(rhoStr.str()));
+    // Sorteia posições dentro do disco da torre, rejeitando pontos que caiam
+    // dentro do retângulo do campo de futebol (evita torcedores em campo).
+    Ptr<UniformRandomVariable> rngAngulo = CreateObject<UniformRandomVariable>();
+    rngAngulo->SetAttribute("Min", DoubleValue(0.0));
+    rngAngulo->SetAttribute("Max", DoubleValue(2.0 * M_PI));
+
+    Ptr<UniformRandomVariable> rngRaio = CreateObject<UniformRandomVariable>();
+    rngRaio->SetAttribute("Min", DoubleValue(0.0));
+    rngRaio->SetAttribute("Max", DoubleValue(1.0));
+
+    Ptr<ListPositionAllocator> staPos = CreateObject<ListPositionAllocator>();
+    for (uint32_t i = 0; i < staNodes.GetN(); i++)
+    {
+        double x, y;
+        do
+        {
+            double theta = rngAngulo->GetValue();
+            double r     = raio * std::sqrt(rngRaio->GetValue());
+            x = apX + r * std::cos(theta);
+            y = apY + r * std::sin(theta);
+        } while (std::abs(x) < campoX && std::abs(y) < campoY);
+
+        staPos->Add(Vector(x, y, 0.0));
+    }
+    mob.SetPositionAllocator(staPos);
     mob.SetMobilityModel("ns3::ConstantPositionMobilityModel");
     mob.Install(staNodes);
 
@@ -131,7 +152,7 @@ int
 main(int argc, char* argv[])
 {
     uint32_t nUsers  = 120;
-    uint32_t nTorres = 12;   // torres Wi-Fi distribuídas ao redor de todo o oval
+    uint32_t nTorres = 6;    // torres Wi-Fi distribuídas ao redor de todo o oval
     double   simTime = 30.0;
     bool     verbose = false;
 
@@ -239,7 +260,12 @@ main(int argc, char* argv[])
 
     const double raioA = 120.0; // semi-eixo maior (laterais do campo)
     const double raioB = 55.0;  // semi-eixo menor (atrás dos gols)
-    const double raioAP = 45.0; // raio de alcance de cada torre
+    const double raioAP = 50.0; // raio de alcance de cada torre
+
+    // Retângulo do campo de futebol (área de jogo), onde torcedores NÃO podem
+    // ser gerados. Medidas em metros a partir do centro (0,0).
+    const double campoX = 55.0; // metade do comprimento do campo
+    const double campoY = 35.0; // metade da largura do campo
 
     struct PosAP { double x, y; };
     std::vector<PosAP> posAPs(nTorres);
@@ -273,7 +299,8 @@ main(int argc, char* argv[])
         ssid << "TORRE-" << (i + 1);
         ipv4.SetBase(base.str().c_str(), "255.255.255.0");
         ifaces[i] = InstalarAP(apNodes.Get(i), grupos[i], ssid.str(),
-                               posAPs[i].x, posAPs[i].y, raioAP, ipv4);
+                               posAPs[i].x, posAPs[i].y, raioAP,
+                               campoX, campoY, ipv4);
     }
 
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
