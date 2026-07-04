@@ -298,6 +298,23 @@ main(int argc, char* argv[])
         std::cout << "  posicoes salvas em: estadio-posicoes.csv\n";
     }
 
+// NOVO: Salvando as posições originais das Torres (APs)
+    {
+        std::ofstream apCSV("estadio-torres.csv");
+        apCSV << "torre,setor,x,y,z\n";
+        apCSV << std::fixed << std::setprecision(2);
+
+        for (uint32_t ap = 0; ap < nTorres; ap++)
+        {
+            // Pega a coordenada XYZ real direto do módulo de mobilidade do NS-3
+            Vector pos = apNodes.Get(ap)->GetObject<MobilityModel>()->GetPosition();
+            
+            apCSV << (ap + 1) << "," << setorDaTorre[ap] << ","
+                  << pos.x << "," << pos.y << "," << pos.z << "\n";
+        }
+        apCSV.close();
+        std::cout << "  posicoes das torres salvas em: estadio-torres.csv\n";
+    }
    
     std::cout << "> [7/9] configurando trafego\n";
 
