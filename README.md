@@ -81,13 +81,13 @@ cd ns-allinone-3.43/ns-3.43
 cd ns-allinone-3.43/ns-3.43
 
 # Simulação padrão (120 torcedores, 30 segundos)
-./ns3 run "scratch/estadio-stress"
+./ns3 run "scratch/estadio"
 
 # Personalizar número de usuários e duração
-./ns3 run "scratch/estadio-stress --nUsers=60 --tempo=20"
+./ns3 run "scratch/estadio --nUsers=60 --tempo=20"
 
 # Com logs detalhados
-./ns3 run "scratch/estadio-stress --nUsers=120 --verbose=1"
+./ns3 run "scratch/estadio --nUsers=120 --verbose=1"
 ```
 
 ### Opção 2 — Via script Python (com gráfico em tempo real)

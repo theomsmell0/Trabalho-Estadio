@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
 BINARIO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "build/scratch/ns3.43-estadio-stress-default")
+                       "build/scratch/ns3.43-estadio-default")
 
 parser = argparse.ArgumentParser(description="Simulacao do estadio")
 parser.add_argument("-n", "--usuarios", type=int, default=120, help="Numero de torcedores (padrao: 120)")
