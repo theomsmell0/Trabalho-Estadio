@@ -11,8 +11,11 @@ estadio-*.xml
 # Python
 __pycache__/
 *.pyc
-
+*.txt
+*.png
 # Editor
 .vscode/
 *.swp
 *~
+plot_estadio.py
+topologia.py
