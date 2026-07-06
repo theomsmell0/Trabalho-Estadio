@@ -5,16 +5,8 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
-RAIZ = os.path.dirname(os.path.abspath(__file__))
-BINARIO = os.path.join(RAIZ, "build/scratch/ns3.43-estadio-default")
-
-# Compila o cenario automaticamente se o binario ainda nao existir, para que
-# outra pessoa consiga rodar tudo com um unico comando (python3 rodar.py).
-if not os.path.exists(BINARIO):
-    print("Binario nao encontrado; compilando com './ns3 build estadio'...")
-    r = subprocess.run([os.path.join(RAIZ, "ns3"), "build", "estadio"], cwd=RAIZ)
-    if r.returncode != 0 or not os.path.exists(BINARIO):
-        raise SystemExit("Falha ao compilar. Rode manualmente: ./ns3 build estadio")
+BINARIO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "build/scratch/ns3.43-estadio-default")
 
 parser = argparse.ArgumentParser(description="Simulacao do estadio")
 parser.add_argument("-n", "--usuarios", type=int, default=120, help="Numero de torcedores (padrao: 120)")
@@ -31,31 +23,37 @@ if args.sem_grafico:
     subprocess.run(cmd)
     raise SystemExit
 
-# --- Configuração do gráfico ---
+# --- Chart configuration ---
 plt.ion()
-fig = plt.figure(figsize=(11, 8))
-fig.suptitle(f"Trafego em tempo real  —  {args.usuarios} torcedores | 6 APs | {args.tempo}s",
-             fontsize=12)
+fig = plt.figure(figsize=(16, 8))
+fig.suptitle(f"Tráfego em Tempo Real\n{args.usuarios} torcedores | 12 APs | {args.tempo}s",
+             fontsize=14, fontweight='bold')
 
-gs = gridspec.GridSpec(3, 1, hspace=0.5)
+gs = gridspec.GridSpec(3, 1, hspace=0.5, figure=fig)
 ax1 = fig.add_subplot(gs[0])
 ax2 = fig.add_subplot(gs[1])
 ax3 = fig.add_subplot(gs[2])
 
-ax1.set_ylabel("Throughput (Mbps)")
-ax2.set_ylabel("Taxa de entrega (%)")
-ax3.set_ylabel("Atraso medio (ms)")
-ax3.set_xlabel("Tempo simulado (s)")
+ax1.set_ylabel("Throughput\n(Mbps)", fontsize=10, fontweight='semibold')
+ax2.set_ylabel("Taxa de Entrega\n(%)", fontsize=10, fontweight='semibold')
+ax3.set_ylabel("Atraso Médio\n(ms)", fontsize=10, fontweight='semibold')
+ax3.set_xlabel("Tempo Simulado (s)", fontsize=10, fontweight='semibold')
 
 for ax in (ax1, ax2, ax3):
     ax.set_xlim(0, args.tempo)
-    ax.grid(True, linestyle="--", alpha=0.5)
+    # Smooth, modern grid and border line changes within standard backend limits
+    ax.grid(True, linestyle="--", color='#ced4da', linewidth=0.6, alpha=0.7)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_color('#ced4da')
+    ax.spines['bottom'].set_color('#ced4da')
 
 ax2.set_ylim(0, 105)
 
-line1, = ax1.plot([], [], color="steelblue",  linewidth=1.8)
-line2, = ax2.plot([], [], color="seagreen",   linewidth=1.8)
-line3, = ax3.plot([], [], color="firebrick",  linewidth=1.8)
+# Thicker and modern hex UI line colors
+line1, = ax1.plot([], [], color="#1f77b4", linewidth=2.2)
+line2, = ax2.plot([], [], color="#2ca02c", linewidth=2.2)
+line3, = ax3.plot([], [], color="#d62728", linewidth=2.2)
 
 times, throughputs, deliveries, delays = [], [], [], []
 
@@ -81,7 +79,7 @@ def parse_stat(line):
     except Exception:
         return None
 
-# --- Executar simulação e ler saída em tempo real ---
+# --- Run simulation and read output in real time ---
 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                         text=True, bufsize=1)
 
@@ -99,6 +97,6 @@ for linha in proc.stdout:
 
 proc.wait()
 
-# Manter gráfico aberto após a simulação terminar
+# Keep chart open after simulation ends
 plt.ioff()
 plt.show()
