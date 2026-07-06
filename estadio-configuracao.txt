@@ -1,0 +1,318 @@
+================================================================================
+  SIMULACAO MULTI-AP - ESTADIO DE FUTEBOL (ns-3.43)
+  Documentacao completa da configuracao: Wi-Fi, trafego e topologia
+  Arquivo-fonte: scratch/estadio.cc
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. VISAO GERAL
+--------------------------------------------------------------------------------
+
+O cenario modela a rede de dados de um estadio de futebol. Torres com pontos de
+acesso (APs) Wi-Fi 802.11ac sao distribuidas ao redor do oval da arquibancada, e
+os torcedores (estacoes / STAs) sao espalhados pelas arquibancadas, entre o
+gramado e o limite externo do estadio.
+
+Um servidor central envia trafego (downlink) para cada torcedor, atravessando um
+backbone cabeado hierarquico ate as torres; o ultimo trecho ate o torcedor e o
+unico sem fio. O objetivo e medir throughput, atraso e perda de pacotes conforme
+o numero de torcedores cresce, estressando os enlaces Wi-Fi das torres.
+
+Parametros de linha de comando (com valores padrao):
+  --nUsers   Total de torcedores no estadio ............ 120
+  --nTorres  Numero de torres Wi-Fi ao redor do oval .... 6  (minimo 4)
+  --tempo    Tempo de simulacao em segundos ............ 30
+  --verbose  Ativa logs detalhados ..................... desligado
+
+O backbone e dividido em 4 setores (quadrantes) do oval; cada setor concentra um
+trecho de torres vizinhas.
+
+
+--------------------------------------------------------------------------------
+2. NOS DA SIMULACAO
+--------------------------------------------------------------------------------
+
+  serverNode   1 no  ...... servidor central (origem do trafego)
+  coreNode     1 no  ...... roteador de nucleo (core)
+  distNodes    4 nos ...... roteadores de distribuicao (1 por setor)
+  apNodes      N nos ...... torres / pontos de acesso Wi-Fi (N = nTorres)
+  torcedores   M nos ...... estacoes dos torcedores (M = nUsers)
+
+Total de nos = 1 (server) + 1 (core) + 4 (dist) + nTorres (APs) + nUsers.
+Para os padroes: 1 + 1 + 4 + 6 + 120 = 132 nos.
+
+
+--------------------------------------------------------------------------------
+3. BACKBONE CABEADO (PONTO-A-PONTO)
+--------------------------------------------------------------------------------
+
+Todos os enlaces cabeados usam PointToPointHelper. Sao tres niveis:
+
+  Enlace                     Tecnologia   DataRate   Delay
+  -------------------------  -----------  ---------  ------
+  Servidor  <-> Core         p2p          10 Gbps    1 ms
+  Core      <-> Distribuicao p2p          1 Gbps     2 ms   (um por setor, x4)
+  Distrib.  <-> Torre (AP)   p2p          1 Gbps     1 ms   (um por torre)
+
+Cada torre pertence ao setor cujo arco ela ocupa no oval:
+  setor_da_torre = (i * nSetores) / nTorres
+
+Assim o caminho de um pacote e:
+  Servidor -> Core -> Distribuicao(setor) -> Torre(AP) -> [Wi-Fi] -> Torcedor
+
+Como os enlaces cabeados sao de 1-10 Gbps, o gargalo real e sempre o ultimo
+trecho (Wi-Fi), que e justamente o que a simulacao quer avaliar.
+
+
+--------------------------------------------------------------------------------
+4. PILHA TCP/IP E ENDERECAMENTO
+--------------------------------------------------------------------------------
+
+InternetStackHelper instala a pilha IPv4 em todos os nos (servidor, core,
+distribuicao, APs e torcedores). O roteamento e resolvido globalmente com
+Ipv4GlobalRoutingHelper::PopulateRoutingTables().
+
+Plano de enderecamento (Ipv4AddressHelper):
+
+  Trecho                     Base            Mascara            Observacao
+  -------------------------  --------------  -----------------  -------------------
+  Servidor <-> Core          10.0.0.0        255.255.255.252    /30 ponto-a-ponto
+  Core <-> Distribuicao      10.0.<s+1>.0    255.255.255.252    /30, s = setor
+  Distribuicao <-> Torre     10.1.<i+1>.0    255.255.255.252    /30, i = torre
+  Rede Wi-Fi de cada torre   192.168.<10+i>.0 255.255.255.0     /24, uma por torre
+
+Em cada rede Wi-Fi (/24), o indice 0 do container de interfaces e o AP e os
+indices 1..N sao os torcedores daquela torre.
+
+
+--------------------------------------------------------------------------------
+5. CONFIGURACAO WI-FI  (funcao InstalarAP, uma rede por torre)
+--------------------------------------------------------------------------------
+
+Cada torre e uma BSS (Basic Service Set) independente, com SSID proprio. Para
+cada torre o codigo faz:
+
+  5.1 CANAL E CAMADA FISICA (PHY)
+      YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
+      YansWifiPhyHelper phy;
+      phy.SetChannel(channel.Create());
+
+      - Modelo Yans de canal Wi-Fi.
+      - YansWifiChannelHelper::Default() instala, por padrao do ns-3:
+          * ConstantSpeedPropagationDelayModel  (atraso de propagacao = dist/c)
+          * LogDistancePropagationLossModel     (perda cresce com log da dist.)
+      - Consequencia: a QUALIDADE DO SINAL depende da DISTANCIA entre o AP e o
+        torcedor. Por isso a posicao de cada torcedor importa.
+
+  5.2 PADRAO E ADAPTACAO DE TAXA
+      WifiHelper wifi;
+      wifi.SetStandard(WIFI_STANDARD_80211ac);
+      wifi.SetRemoteStationManager("ns3::MinstrelHtWifiManager");
+
+      - Padrao: IEEE 802.11ac (banda de 5 GHz, alto throughput).
+      - Gerente de estacao remota: MinstrelHtWifiManager, que adapta
+        dinamicamente a modulacao/taxa (MCS) de cada STA conforme a relacao
+        sinal-ruido observada (ou seja, conforme a distancia ao AP).
+
+  5.3 MAC DO PONTO DE ACESSO (AP)
+      WifiMacHelper mac;
+      Ssid wssid = Ssid(ssid);                       // ex.: "TORRE-1", "TORRE-2"...
+      mac.SetType("ns3::ApWifiMac", "Ssid", SsidValue(wssid));
+      NetDeviceContainer apDev = wifi.Install(phy, mac, apNode);
+
+      - Tipo de MAC: ApWifiMac (modo infraestrutura, o no atua como AP).
+      - Cada torre anuncia um SSID unico: TORRE-1, TORRE-2, ..., TORRE-N.
+
+  5.4 MAC DAS ESTACOES (TORCEDORES)
+      mac.SetType("ns3::StaWifiMac",
+                  "Ssid",          SsidValue(wssid),
+                  "ActiveProbing", BooleanValue(false));
+      NetDeviceContainer staDev = wifi.Install(phy, mac, staNodes);
+
+      - Tipo de MAC: StaWifiMac (estacao cliente).
+      - Mesmo SSID da torre a que pertence -> associa-se aquele AP.
+      - ActiveProbing = false: as STAs nao enviam Probe Requests ativos; esperam
+        os Beacons do AP (associacao passiva), reduzindo trafego de controle.
+
+  5.5 RESULTADO
+      As interfaces IP sao atribuidas na ordem: indice 0 = AP, 1..N = STAs.
+      Cada torre forma uma celula Wi-Fi isolada; um torcedor so troca dados com
+      a torre cujo SSID ele carrega.
+
+RESUMO WI-FI
+  Item                 Valor
+  -------------------  --------------------------------------------
+  Padrao               IEEE 802.11ac (5 GHz)
+  Canal / PHY          Yans (YansWifiChannel + YansWifiPhy)
+  Atraso de propagacao ConstantSpeedPropagationDelayModel (padrao)
+  Perda de propagacao  LogDistancePropagationLossModel (padrao)
+  Adaptacao de taxa    MinstrelHtWifiManager
+  MAC do AP            ApWifiMac (SSID por torre: TORRE-i)
+  MAC da STA           StaWifiMac (ActiveProbing desligado)
+  Altura do AP         15 m
+  Modelo de mobilidade ConstantPositionMobilityModel (tudo estatico)
+
+
+--------------------------------------------------------------------------------
+6. POSICIONAMENTO E MOBILIDADE
+--------------------------------------------------------------------------------
+
+Nada se move: todos os nos usam ConstantPositionMobilityModel. O modulo de
+mobilidade e usado apenas para ATRIBUIR COORDENADAS (x, y, z), das quais depende
+a fisica de propagacao do Wi-Fi (item 5.1).
+
+  6.1 GEOMETRIA DO ESTADIO (medidas em metros, a partir do centro 0,0)
+      - Oval das torres:     semi-eixo maior raioA = 120 (laterais do campo)
+                             semi-eixo menor raioB = 55  (atras dos gols)
+      - Alcance por torre:   raioAP = 50 (raio do disco de geracao de STAs)
+      - Campo de futebol:    retangulo 2*campoX x 2*campoY = 110 x 70
+                             (campoX = 55, campoY = 35) -> area de jogo
+      - Arquibancada externa: elipse arqA = 130, arqB = 62
+                             (mesma elipse tracejada do mapa em plot_estadio.py)
+
+  6.2 POSICAO DAS TORRES  (funcao DistribuirTorresPorArco)
+      As torres sao distribuidas em intervalos de IGUAL COMPRIMENTO DE ARCO ao
+      longo do oval (nao por angulo igual). Isso evita que, num oval alongado,
+      as torres fiquem amontoadas atras dos gols e afastadas demais nas laterais
+      (o que deixava um "buraco" sem cobertura no meio da arquibancada lateral).
+      Cada torre e posicionada a 15 m de altura (z = 15).
+
+      Metodo: amostra fina do perimetro do oval acumulando comprimento de arco;
+      cada torre fica num multiplo igual do perimetro total.
+
+  6.3 POSICAO DOS TORCEDORES  (dentro de InstalarAP)
+      Para cada torcedor sorteia-se um ponto num disco de raio raioAP ao redor da
+      sua torre, com distribuicao uniforme na area:
+          theta = uniforme(0, 2*pi)
+          r     = raioAP * sqrt(uniforme(0,1))
+          x = apX + r*cos(theta);   y = apY + r*sin(theta)
+      O ponto e REJEITADO e re-sorteado se cair:
+          (a) dentro do retangulo do campo  -> evita torcedores em campo, e
+          (b) fora da elipse externa (arqA, arqB) -> evita torcedores "fora do
+              estadio".
+      Assim os torcedores ficam confinados ao anel das arquibancadas, entre o
+      gramado e o limite externo.
+
+  6.4 ATRIBUICAO TORCEDOR -> TORRE
+      Cada torcedor e sorteado uniformemente para uma das nTorres (grupos), de
+      modo que cada torre recebe aproximadamente o mesmo numero de STAs. A STA e
+      entao gerada perto da sua torre (item 6.3), garantindo bom sinal Wi-Fi.
+
+
+--------------------------------------------------------------------------------
+7. MODELO DE TRAFEGO
+--------------------------------------------------------------------------------
+
+O trafego e UDP, no sentido SERVIDOR -> TORCEDOR (downlink), imitando um fluxo
+de midia (por exemplo streaming de video/replays). Para CADA torcedor cria-se um
+par receptor + gerador:
+
+  7.1 RECEPTOR (no torcedor)
+      PacketSinkHelper sink("ns3::UdpSocketFactory",
+                            InetSocketAddress(Ipv4Address::GetAny(), portBase));
+      - Consome (descarta) os pacotes recebidos, medindo a chegada.
+      - Escuta em uma porta unica por torcedor (portBase, a partir de 9000).
+      - Ativo de t=0 ate t=simTime.
+
+  7.2 GERADOR (no servidor, apontando para o IP do torcedor)
+      OnOffHelper onoff("ns3::UdpSocketFactory",
+                        InetSocketAddress(ifaces[ap].GetAddress(i+1), portBase));
+      onoff.SetAttribute("DataRate",   StringValue("500Kbps"));
+      onoff.SetAttribute("PacketSize", UintegerValue(1024));
+      onoff.SetAttribute("OnTime",  "ns3::ConstantRandomVariable[Constant=1]");
+      onoff.SetAttribute("OffTime", "ns3::ExponentialRandomVariable[Mean=0.5]");
+
+      - Aplicacao OnOff: alterna periodos "ligado" (envia) e "desligado" (pausa),
+        tipico de trafego intermitente (voz/video).
+      - DataRate 500 Kbps durante o periodo "on".
+      - Pacotes de 1024 bytes.
+      - OnTime  : constante de 1 s.
+      - OffTime : exponencial com media 0,5 s (pausas aleatorias).
+
+  7.3 INICIO ESCALONADO
+      Para nao ligar todos os fluxos no mesmo instante (o que geraria um pico
+      irreal), o inicio de cada gerador e defasado:
+          t = 1.0 + (portBase - 9000) * 0.01
+      (com ajuste por fmod para nao ultrapassar simTime). Cada gerador para em
+      simTime - 0.5 s.
+
+RESUMO DO TRAFEGO
+  Item                Valor
+  ------------------  ------------------------------------------
+  Transporte          UDP (UdpSocketFactory)
+  Sentido             servidor -> cada torcedor (downlink)
+  Aplicacao           OnOffHelper (liga/desliga)
+  Taxa por fluxo      500 Kbps (durante o "on")
+  Tamanho do pacote   1024 bytes
+  Periodo "on"        constante = 1 s
+  Periodo "off"       exponencial, media 0,5 s
+  Porta               uma por torcedor, a partir de 9000
+  Numero de fluxos    = numero de torcedores (ex.: 120)
+  Inicio              escalonado (defasado por fluxo)
+
+
+--------------------------------------------------------------------------------
+8. COLETA DE METRICAS (FlowMonitor)
+--------------------------------------------------------------------------------
+
+  FlowMonitorHelper flowHelper;
+  Ptr<FlowMonitor> flowMonitor = flowHelper.InstallAll();
+
+  - InstallAll() monitora TODOS os fluxos da simulacao.
+  - Amostragem periodica: a cada 1 s simulado a funcao AmostraMetricas imprime
+    uma linha "STAT t=... throughput=... atraso=... entrega=... tx=... rx=...
+    lost=...". Os scripts Python (rodar.py) leem essas linhas para plotar em
+    tempo real.
+  - Ao final (Simulator::Run + coleta), o codigo agrega:
+        throughput total (Mbps) = soma de (rxBytes*8 / duracao) por fluxo / 1e6
+        atraso medio (ms)       = media de (delaySum/rxPackets) entre os fluxos
+        taxa de entrega (%)     = rxPackets / txPackets * 100
+        taxa de perda (%)       = 100 - taxa de entrega
+    e conta fluxos ativos, pacotes enviados/recebidos/perdidos.
+
+
+--------------------------------------------------------------------------------
+9. ARQUIVOS DE SAIDA
+--------------------------------------------------------------------------------
+
+  estadio-metricas.csv     Uma linha por execucao (append):
+                           usuarios, nos_total, fluxos, throughput_mbps,
+                           atraso_ms, pkts_enviados, pkts_recebidos,
+                           pkts_perdidos, taxa_entrega_pct, taxa_perda_pct
+  estadio-posicoes.csv     id, setor, torre, x, y  (posicao de cada torcedor)
+  estadio-torres.csv       torre, setor, x, y, z   (posicao de cada torre/AP)
+  estadio-flowmon-<N>.xml  Dump completo do FlowMonitor (N = nUsers)
+  estadio-mapa.png         Mapa do estadio desenhado por plot_estadio.py
+
+
+--------------------------------------------------------------------------------
+10. COMO COMPILAR E EXECUTAR
+--------------------------------------------------------------------------------
+
+  # Caminho mais simples (compila se preciso e mostra grafico em tempo real):
+  python3 rodar.py
+  python3 rodar.py -n 200 -t 20        # 200 torcedores, 20 s
+  python3 rodar.py --sem-grafico       # so o resultado no terminal
+
+  # Comandos ns-3 padrao:
+  ./ns3 build estadio
+  ./ns3 run "estadio --nUsers=120 --tempo=30"
+
+  # Mapa do estadio (apos rodar uma simulacao, que gera os CSVs):
+  python3 plot_estadio.py              # salva estadio-mapa.png
+
+  Dependencia dos graficos: Python 3 com matplotlib (pip install matplotlib).
+
+
+--------------------------------------------------------------------------------
+11. RESUMO EM UMA FRASE
+--------------------------------------------------------------------------------
+
+Wi-Fi 802.11ac (canal Yans, perda por log-distancia, taxa adaptada por Minstrel),
+com uma BSS por torre distribuida uniformemente pelo oval; trafego UDP OnOff de
+downlink (500 Kbps, pacotes de 1024 B, on=1s / off~Exp(0,5s)) do servidor para
+cada torcedor, atravessando um backbone cabeado de 1-10 Gbps, medido pelo
+FlowMonitor.
+
+================================================================================

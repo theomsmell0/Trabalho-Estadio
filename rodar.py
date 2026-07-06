@@ -5,8 +5,16 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
-BINARIO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "build/scratch/ns3.43-estadio-default")
+RAIZ = os.path.dirname(os.path.abspath(__file__))
+BINARIO = os.path.join(RAIZ, "build/scratch/ns3.43-estadio-default")
+
+# Compila o cenario automaticamente se o binario ainda nao existir, para que
+# outra pessoa consiga rodar tudo com um unico comando (python3 rodar.py).
+if not os.path.exists(BINARIO):
+    print("Binario nao encontrado; compilando com './ns3 build estadio'...")
+    r = subprocess.run([os.path.join(RAIZ, "ns3"), "build", "estadio"], cwd=RAIZ)
+    if r.returncode != 0 or not os.path.exists(BINARIO):
+        raise SystemExit("Falha ao compilar. Rode manualmente: ./ns3 build estadio")
 
 parser = argparse.ArgumentParser(description="Simulacao do estadio")
 parser.add_argument("-n", "--usuarios", type=int, default=120, help="Numero de torcedores (padrao: 120)")
@@ -26,7 +34,7 @@ if args.sem_grafico:
 # --- Configuração do gráfico ---
 plt.ion()
 fig = plt.figure(figsize=(11, 8))
-fig.suptitle(f"Trafego em tempo real  —  {args.usuarios} torcedores | 12 APs | {args.tempo}s",
+fig.suptitle(f"Trafego em tempo real  —  {args.usuarios} torcedores | 6 APs | {args.tempo}s",
              fontsize=12)
 
 gs = gridspec.GridSpec(3, 1, hspace=0.5)

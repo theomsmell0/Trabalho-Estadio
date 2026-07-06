@@ -85,6 +85,8 @@ InstalarAP(Ptr<Node> apNode,
            double raio,
            double campoX,
            double campoY,
+           double arqA,
+           double arqB,
            Ipv4AddressHelper& ipHelper)
 {
     YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
@@ -115,7 +117,9 @@ InstalarAP(Ptr<Node> apNode,
     mob.Install(apNode);
 
     // Sorteia posições dentro do disco da torre, rejeitando pontos que caiam
-    // dentro do retângulo do campo de futebol (evita torcedores em campo).
+    // dentro do retângulo do campo (evita torcedores em campo) OU fora da
+    // elipse externa da arquibancada (evita torcedores "fora do estádio").
+    // O resultado confina os torcedores ao anel das arquibancadas.
     Ptr<UniformRandomVariable> rngAngulo = CreateObject<UniformRandomVariable>();
     rngAngulo->SetAttribute("Min", DoubleValue(0.0));
     rngAngulo->SetAttribute("Max", DoubleValue(2.0 * M_PI));
@@ -134,7 +138,8 @@ InstalarAP(Ptr<Node> apNode,
             double r     = raio * std::sqrt(rngRaio->GetValue());
             x = apX + r * std::cos(theta);
             y = apY + r * std::sin(theta);
-        } while (std::abs(x) < campoX && std::abs(y) < campoY);
+        } while ((std::abs(x) < campoX && std::abs(y) < campoY) ||
+                 (x * x) / (arqA * arqA) + (y * y) / (arqB * arqB) > 1.0);
 
         staPos->Add(Vector(x, y, 0.0));
     }
@@ -146,6 +151,54 @@ InstalarAP(Ptr<Node> apNode,
     all.Add(apDev);
     all.Add(staDev);
     return ipHelper.Assign(all);
+}
+
+struct PosAP
+{
+    double x, y;
+};
+
+// Distribui as torres em intervalos de IGUAL COMPRIMENTO DE ARCO ao longo do
+// oval. Dividir apenas o angulo igualmente amontoa as torres atras dos gols e
+// as afasta demais nas laterais (o semi-eixo maior é bem maior que o menor),
+// deixando um "buraco" sem cobertura no meio da arquibancada lateral. Espaçar
+// por arco mantém a distância entre torres vizinhas constante e cobre todo o
+// perímetro de forma uniforme, maximizando a área util para os torcedores.
+std::vector<PosAP>
+DistribuirTorresPorArco(uint32_t nTorres, double a, double b)
+{
+    // 1) Amostra fina do oval acumulando o comprimento de arco.
+    const uint32_t M = 20000;
+    std::vector<double> arc(M + 1);
+    std::vector<double> ang(M + 1);
+    double xPrev = a, yPrev = 0.0;
+    arc[0] = 0.0;
+    ang[0] = 0.0;
+    for (uint32_t k = 1; k <= M; k++)
+    {
+        double th = 2.0 * M_PI * k / M;
+        double x  = a * std::cos(th);
+        double y  = b * std::sin(th);
+        arc[k]    = arc[k - 1] + std::hypot(x - xPrev, y - yPrev);
+        ang[k]    = th;
+        xPrev     = x;
+        yPrev     = y;
+    }
+    double perimetro = arc[M];
+
+    // 2) Cada torre fica no ponto cujo arco acumulado é um múltiplo igual do
+    //    perímetro. Como os alvos crescem, basta avançar o índice uma vez.
+    std::vector<PosAP> pos(nTorres);
+    uint32_t k = 0;
+    for (uint32_t i = 0; i < nTorres; i++)
+    {
+        double alvo = perimetro * i / nTorres;
+        while (k < M && arc[k] < alvo)
+            k++;
+        double th = ang[k];
+        pos[i]    = {a * std::cos(th), b * std::sin(th)};
+    }
+    return pos;
 }
 
 int
@@ -172,15 +225,6 @@ main(int argc, char* argv[])
     // Backbone dividido em 4 setores (quadrantes) do oval.
     // Cada setor concentra um trecho de torres vizinhas.
     const uint32_t nSetores = 4;
-
-    std::cout << "\n============================================\n"
-              << "  SIMULAÇÃO MULTI-AP - ESTÁDIO DE FUTEBOL\n"
-              << "    Wi-Fi 802.11ac | torres ao redor do oval\n"
-              << "============================================\n"
-              << "Total de torcedores : " << nUsers  << "\n"
-              << "Torres Wi-Fi        : " << nTorres << " (" << nSetores << " setores)\n"
-              << "Tempo de simulação  : " << simTime << "s\n"
-              << "============================================\n\n";
 
     std::cout << "> [1/7] criando nos\n";
 
@@ -267,13 +311,13 @@ main(int argc, char* argv[])
     const double campoX = 55.0; // metade do comprimento do campo
     const double campoY = 35.0; // metade da largura do campo
 
-    struct PosAP { double x, y; };
-    std::vector<PosAP> posAPs(nTorres);
-    for (uint32_t i = 0; i < nTorres; i++)
-    {
-        double theta = 2.0 * M_PI * i / nTorres;
-        posAPs[i] = { raioA * std::cos(theta), raioB * std::sin(theta) };
-    }
+    // Contorno externo da arquibancada (a mesma elipse tracejada desenhada em
+    // plot_estadio.py). Os torcedores são confinados a este limite para não
+    // aparecerem "fora do estádio".
+    const double arqA = 130.0; // semi-eixo maior externo
+    const double arqB = 62.0;  // semi-eixo menor externo
+
+    std::vector<PosAP> posAPs = DistribuirTorresPorArco(nTorres, raioA, raioB);
 
     std::cout << "> [5/7] sorteando torcedores por torre\n";
 
@@ -300,7 +344,7 @@ main(int argc, char* argv[])
         ipv4.SetBase(base.str().c_str(), "255.255.255.0");
         ifaces[i] = InstalarAP(apNodes.Get(i), grupos[i], ssid.str(),
                                posAPs[i].x, posAPs[i].y, raioAP,
-                               campoX, campoY, ipv4);
+                               campoX, campoY, arqA, arqB, ipv4);
     }
 
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
