@@ -26,7 +26,7 @@ if args.sem_grafico:
 # --- Chart configuration ---
 plt.ion()
 fig = plt.figure(figsize=(16, 8))
-fig.suptitle(f"Tráfego em Tempo Real\n{args.usuarios} torcedores | 12 APs | {args.tempo}s",
+fig.suptitle(f"Tráfego em Tempo Real\n{args.usuarios} torcedores | 6 APs | {args.tempo}s",
              fontsize=14, fontweight='bold')
 
 gs = gridspec.GridSpec(3, 1, hspace=0.5, figure=fig)

@@ -116,10 +116,8 @@ InstalarAP(Ptr<Node> apNode,
     mob.SetMobilityModel("ns3::ConstantPositionMobilityModel");
     mob.Install(apNode);
 
-    // Sorteia posições dentro do disco da torre, rejeitando pontos que caiam
-    // dentro do retângulo do campo (evita torcedores em campo) OU fora da
-    // elipse externa da arquibancada (evita torcedores "fora do estádio").
-    // O resultado confina os torcedores ao anel das arquibancadas.
+    // sorteia posições dentro do disco da torre,
+
     Ptr<UniformRandomVariable> rngAngulo = CreateObject<UniformRandomVariable>();
     rngAngulo->SetAttribute("Min", DoubleValue(0.0));
     rngAngulo->SetAttribute("Max", DoubleValue(2.0 * M_PI));
@@ -302,18 +300,14 @@ main(int argc, char* argv[])
 
     std::cout << "> [4/7] posicionando torres ao redor do oval\n";
 
-    const double raioA = 120.0; // semi-eixo maior (laterais do campo)
-    const double raioB = 55.0;  // semi-eixo menor (atrás dos gols)
+    const double raioA = 120.0; // semi-eixo maior 
+    const double raioB = 55.0;  // semi-eixo menor 
     const double raioAP = 50.0; // raio de alcance de cada torre
 
-    // Retângulo do campo de futebol (área de jogo), onde torcedores NÃO podem
-    // ser gerados. Medidas em metros a partir do centro (0,0).
+  
     const double campoX = 55.0; // metade do comprimento do campo
     const double campoY = 35.0; // metade da largura do campo
 
-    // Contorno externo da arquibancada (a mesma elipse tracejada desenhada em
-    // plot_estadio.py). Os torcedores são confinados a este limite para não
-    // aparecerem "fora do estádio".
     const double arqA = 130.0; // semi-eixo maior externo
     const double arqB = 62.0;  // semi-eixo menor externo
 
