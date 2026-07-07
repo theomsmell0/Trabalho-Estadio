@@ -156,12 +156,8 @@ struct PosAP
     double x, y;
 };
 
-// Distribui as torres em intervalos de IGUAL COMPRIMENTO DE ARCO ao longo do
-// oval. Dividir apenas o angulo igualmente amontoa as torres atras dos gols e
-// as afasta demais nas laterais (o semi-eixo maior é bem maior que o menor),
-// deixando um "buraco" sem cobertura no meio da arquibancada lateral. Espaçar
-// por arco mantém a distância entre torres vizinhas constante e cobre todo o
-// perímetro de forma uniforme, maximizando a área util para os torcedores.
+// Distribui as torres em intervalos de IGUAL COMPRIMENTO DE ARCO ao longo do oval
+
 std::vector<PosAP>
 DistribuirTorresPorArco(uint32_t nTorres, double a, double b)
 {
@@ -184,8 +180,6 @@ DistribuirTorresPorArco(uint32_t nTorres, double a, double b)
     }
     double perimetro = arc[M];
 
-    // 2) Cada torre fica no ponto cujo arco acumulado é um múltiplo igual do
-    //    perímetro. Como os alvos crescem, basta avançar o índice uma vez.
     std::vector<PosAP> pos(nTorres);
     uint32_t k = 0;
     for (uint32_t i = 0; i < nTorres; i++)
